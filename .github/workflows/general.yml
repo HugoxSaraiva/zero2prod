@@ -17,7 +17,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   SQLX_VERSION: 0.7.4
-  SQLX_FEATURES: "rustls,postgres"
+  SQLX_FEATURES: "runtime-tokio-rustls,macros,postgres,uuid,chrono,migrate" 
 
 # A workflow run is made up of one or more jobs, which run in parallel by default
 # Each job runs in a runner environment specified by runs-on
@@ -79,6 +79,9 @@ jobs:
       - name: Migrate database
         run: SKIP_DOCKER=true ./scripts/init_db.sh
 
+      - name: Check sqlx-data.json is up-to-date
+        run: |
+          cargo sqlx prepare --workspace --check
       - name: Run tests
         run: cargo test
 
