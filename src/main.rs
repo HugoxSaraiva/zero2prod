@@ -1,6 +1,5 @@
 use sqlx::postgres::PgPoolOptions;
 use std::net::TcpListener;
-use tracing::{event, Level};
 use zero2prod::{
     configuration::get_configuration,
     startup::run,
