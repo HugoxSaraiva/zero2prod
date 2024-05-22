@@ -1,5 +1,6 @@
 use sqlx::postgres::PgPoolOptions;
 use std::net::TcpListener;
+use tracing::{event, Level};
 use zero2prod::{
     configuration::get_configuration,
     startup::run,
@@ -19,9 +20,6 @@ async fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind(address)?;
     let connection_pool = PgPoolOptions::new()
         .acquire_timeout(std::time::Duration::from_secs(2))
-        .connect(&configuration.database.connection_string())
-        .await
-        .expect("Failed to connect to Postgres.");
-
+        .connect_lazy_with(configuration.database.with_db());
     run(listener, connection_pool)?.await
 }
