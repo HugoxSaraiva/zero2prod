@@ -102,3 +102,22 @@ async fn subscribe_sends_a_confirmation_email_for_valid_data() {
 
     assert_eq!(confirmation_links.html, confirmation_links.plain_text);
 }
+
+#[actix_rt::test]
+async fn subscribing_twice_should_return_200_and_send_two_emails() {
+    let app = spawn_app().await;
+    let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(2)
+        .mount(&app.email_server)
+        .await;
+
+    let response = app.post_subscriptions(body.into()).await;
+    assert_eq!(200, response.status().as_u16());
+
+    let response = app.post_subscriptions(body.into()).await;
+    assert_eq!(200, response.status().as_u16());
+}

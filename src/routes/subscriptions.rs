@@ -62,7 +62,9 @@ pub async fn subscribe(
         return HttpResponse::InternalServerError().finish();
     }
 
-    if trasaction.commit().await.is_err() {
+    let commit_result = trasaction.commit().await;
+
+    if commit_result.is_err() {
         return HttpResponse::InternalServerError().finish();
     }
 
@@ -128,23 +130,27 @@ pub async fn insert_subscriber<'a, T: PgExecutor<'a>>(
     executor: T,
     new_subscriber: &'a NewSubscriber,
 ) -> Result<Uuid, sqlx::Error> {
-    let subscriber_id = Uuid::new_v4();
-    sqlx::query!(
+    let mut subscriber_id = Uuid::new_v4();
+    subscriber_id = sqlx::query!(
         r#"
-    INSERT INTO subscriptions (id, email, name, subscribed_at, status)
-    VALUES ($1, $2, $3, $4, 'pending_confirmation')
-    "#,
+        INSERT INTO subscriptions (id, email, name, subscribed_at, status)
+        VALUES ($1, $2, $3, $4, 'pending_confirmation')
+        ON CONFLICT (email)
+        DO UPDATE SET email = $2
+        RETURNING id
+        "#,
         subscriber_id,
         new_subscriber.email.as_ref(),
         new_subscriber.name.as_ref(),
         Utc::now(),
     )
-    .execute(executor)
+    .fetch_one(executor)
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute query: {:?}", e);
         e
-    })?;
+    })
+    .map(|r| r.id)?;
     Ok(subscriber_id)
 }
 
@@ -158,8 +164,13 @@ pub async fn store_token<'a, T: PgExecutor<'a>>(
     subscription_token: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
-        r#"INSERT INTO subscription_tokens (subscription_token, subscriber_id)
-    VALUES ($1, $2)"#,
+        r#"
+        INSERT INTO subscription_tokens (subscription_token, subscriber_id)
+        VALUES ($1, $2)
+        ON CONFLICT(subscriber_id)
+        DO UPDATE SET 
+            subscription_token = EXCLUDED.subscription_token
+        "#,
         subscription_token,
         subscriber_id
     )
