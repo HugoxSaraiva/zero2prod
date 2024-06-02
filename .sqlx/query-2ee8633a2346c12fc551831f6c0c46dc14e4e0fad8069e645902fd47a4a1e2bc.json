@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO subscriptions (id, email, name, subscribed_at, status)\n        VALUES ($1, $2, $3, $4, 'pending_confirmation')\n        ON CONFLICT (email)\n        DO UPDATE SET email = $2\n        RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2ee8633a2346c12fc551831f6c0c46dc14e4e0fad8069e645902fd47a4a1e2bc"
+}
