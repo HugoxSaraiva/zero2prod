@@ -2,18 +2,25 @@ use actix_web::{web, HttpResponse};
 use chrono::Utc;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use sqlx::{PgExecutor, PgPool};
+use tera::Context;
 use uuid::Uuid;
 
 use crate::{
     domain::{NewSubscriber, SubscriberEmail, SubscriberName},
     email_client::EmailClient,
     startup::ApplicationBaseUrl,
+    templates::TEMPLATES,
 };
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
     pub email: String,
     pub name: String,
+}
+
+#[derive(serde::Serialize)]
+struct WelcomeEmailContext {
+    confirmation_link: String,
 }
 
 impl TryFrom<FormData> for NewSubscriber {
@@ -97,17 +104,16 @@ pub async fn send_confirmation_email(
         "{}/subscriptions/confirm?subscription_token={}",
         base_url, subscription_token
     );
-    let plain_body = &format!(
-        "Welcome to our newsletter!\nVisit {} to confirm your subscription.",
-        confirmation_link
-    );
 
-    let html_body = &format!(
-        "Welcome to our newsletter!<br />\
-                Click <a= href=\"{}\">here</a> to confirm your subscription.",
-        confirmation_link
-    );
+    let welcome_context = Context::from_serialize(WelcomeEmailContext { confirmation_link })
+        .expect("Failed creating context");
 
+    let plain_body = TEMPLATES
+        .render("welcome.txt", &welcome_context)
+        .expect("Failed rendering template.");
+    let html_body = TEMPLATES
+        .render("welcome.html", &welcome_context)
+        .expect("Failed rendering template.");
     email_client
         .send_email(new_subscriber.email, "Welcome!", &html_body, &plain_body)
         .await?;

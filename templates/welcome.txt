@@ -1,0 +1,2 @@
+Welcome to our newsletter!
+Visit {{ confirmation_link }} to confirm your subscription.
