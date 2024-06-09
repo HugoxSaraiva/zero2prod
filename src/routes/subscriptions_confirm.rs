@@ -1,4 +1,6 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpResponse, ResponseError};
+use anyhow::Context;
+use reqwest::StatusCode;
 use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -10,26 +12,48 @@ pub struct Parameters {
     subscription_token: String,
 }
 
-#[tracing::instrument(name = "Confirm a pending subscriber", skip(parameters, pool))]
-pub async fn confirm(parameters: web::Query<Parameters>, pool: web::Data<PgPool>) -> HttpResponse {
-    let subscription_token =
-        match SubscriptionToken::parse(parameters.subscription_token.to_owned()) {
-            Err(_) => return HttpResponse::BadRequest().finish(),
-            Ok(subscription_token) => subscription_token,
-        };
+#[derive(thiserror::Error)]
+pub enum ConfirmError {
+    #[error("{0}")]
+    ValidationError(String),
+    #[error(transparent)]
+    UnexpectedError(#[from] anyhow::Error),
+}
 
-    let id = match get_subscriber_id_from_token(&pool, &subscription_token).await {
-        Ok(id) => id,
-        Err(_) => return HttpResponse::InternalServerError().finish(),
-    };
+impl std::fmt::Debug for ConfirmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
+}
+
+impl ResponseError for ConfirmError {
+    fn status_code(&self) -> reqwest::StatusCode {
+        match self {
+            ConfirmError::ValidationError(_) => StatusCode::BAD_REQUEST,
+            ConfirmError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+}
+
+#[tracing::instrument(name = "Confirm a pending subscriber", skip(parameters, pool))]
+pub async fn confirm(
+    parameters: web::Query<Parameters>,
+    pool: web::Data<PgPool>,
+) -> Result<HttpResponse, ConfirmError> {
+    let subscription_token = SubscriptionToken::parse(parameters.subscription_token.to_owned())
+        .map_err(ConfirmError::ValidationError)?;
+
+    let id = get_subscriber_id_from_token(&pool, &subscription_token)
+        .await
+        .context("Failed getting subscriber from id token.")?;
 
     match id {
-        None => HttpResponse::Unauthorized().finish(),
+        None => Ok(HttpResponse::Unauthorized().finish()),
         Some(subscriber_id) => {
-            if confirm_subscriber(&pool, subscriber_id).await.is_err() {
-                return HttpResponse::InternalServerError().finish();
-            }
-            HttpResponse::Ok().finish()
+            confirm_subscriber(&pool, subscriber_id)
+                .await
+                .context("Failed to confirm subscriber")?;
+            Ok(HttpResponse::Ok().finish())
         }
     }
 }
@@ -65,4 +89,17 @@ async fn get_subscriber_id_from_token(
         e
     })?;
     Ok(result.map(|r| r.subscriber_id))
+}
+
+fn error_chain_fmt(
+    e: &impl std::error::Error,
+    f: &mut std::fmt::Formatter<'_>,
+) -> std::fmt::Result {
+    writeln!(f, "{}\n", e)?;
+    let mut current = e.source();
+    while let Some(cause) = current {
+        writeln!(f, "Caused by:\n\t{}", cause)?;
+        current = cause.source();
+    }
+    Ok(())
 }

@@ -121,3 +121,18 @@ async fn subscribing_twice_should_return_200_and_send_two_emails() {
     let response = app.post_subscriptions(body.into()).await;
     assert_eq!(200, response.status().as_u16());
 }
+
+#[actix_rt::test]
+async fn subscribe_fails_if_there_is_a_fatal_database_error() {
+    let app = spawn_app().await;
+    let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
+    // Sabotage the database
+    sqlx::query!("ALTER TABLE subscriptions DROP COLUMN email;")
+        .execute(&app.db_pool)
+        .await
+        .unwrap();
+
+    let response = app.post_subscriptions(body.into()).await;
+
+    assert_eq!(response.status().as_u16(), 500);
+}

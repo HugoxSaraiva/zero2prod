@@ -1,8 +1,9 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpResponse, ResponseError};
+use anyhow::Context;
 use chrono::Utc;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use reqwest::StatusCode;
 use sqlx::{PgExecutor, PgPool};
-use tera::Context;
 use uuid::Uuid;
 
 use crate::{
@@ -21,6 +22,29 @@ pub struct FormData {
 #[derive(serde::Serialize)]
 struct WelcomeEmailContext {
     confirmation_link: String,
+}
+
+#[derive(thiserror::Error)]
+pub enum SubscribeError {
+    #[error("{0}")]
+    ValidationError(String),
+    #[error(transparent)]
+    UnexpectedError(#[from] anyhow::Error),
+}
+
+impl std::fmt::Debug for SubscribeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
+}
+
+impl ResponseError for SubscribeError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            SubscribeError::ValidationError(_) => StatusCode::BAD_REQUEST,
+            SubscribeError::UnexpectedError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
 }
 
 impl TryFrom<FormData> for NewSubscriber {
@@ -46,48 +70,37 @@ pub async fn subscribe(
     pool: web::Data<PgPool>,
     email_client: web::Data<EmailClient>,
     base_url: web::Data<ApplicationBaseUrl>,
-) -> HttpResponse {
-    let new_subscriber = match form.0.try_into() {
-        Ok(value) => value,
-        Err(_) => return HttpResponse::BadRequest().finish(),
-    };
-    let mut trasaction = match pool.begin().await {
-        Ok(transaction) => transaction,
-        Err(_) => return HttpResponse::InternalServerError().finish(),
-    };
+) -> Result<HttpResponse, SubscribeError> {
+    let new_subscriber = form.0.try_into().map_err(SubscribeError::ValidationError)?;
+    let mut trasaction = pool
+        .begin()
+        .await
+        .context("Failed to acquire a Postgres connection from the pool.")?;
 
-    let subscriber_id = match insert_subscriber(&mut *trasaction, &new_subscriber).await {
-        Ok(subscriber_id) => subscriber_id,
-        Err(_) => return HttpResponse::InternalServerError().finish(),
-    };
+    let subscriber_id = insert_subscriber(&mut *trasaction, &new_subscriber)
+        .await
+        .context("Failed to insert a new subscriber in the database.")?;
     let subscription_token = generate_subscription_token();
 
-    if store_token(&mut *trasaction, subscriber_id, &subscription_token)
+    store_token(&mut *trasaction, subscriber_id, &subscription_token)
         .await
-        .is_err()
-    {
-        return HttpResponse::InternalServerError().finish();
-    }
+        .context("Failed to store the confirmation token for a new subscriber.")?;
 
-    let commit_result = trasaction.commit().await;
+    trasaction
+        .commit()
+        .await
+        .context("Failed to comit SQL transaction to store a new subscriber.")?;
 
-    if commit_result.is_err() {
-        return HttpResponse::InternalServerError().finish();
-    }
-
-    if send_confirmation_email(
+    send_confirmation_email(
         &email_client,
         new_subscriber,
         &base_url.0,
         &subscription_token,
     )
     .await
-    .is_err()
-    {
-        return HttpResponse::InternalServerError().finish();
-    };
+    .context("Failed to send a confirmation email.")?;
 
-    HttpResponse::Ok().finish()
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[tracing::instrument(
@@ -105,7 +118,7 @@ pub async fn send_confirmation_email(
         base_url, subscription_token
     );
 
-    let welcome_context = Context::from_serialize(WelcomeEmailContext { confirmation_link })
+    let welcome_context = tera::Context::from_serialize(WelcomeEmailContext { confirmation_link })
         .expect("Failed creating context");
 
     let plain_body = TEMPLATES
@@ -152,10 +165,6 @@ pub async fn insert_subscriber<'a, T: PgExecutor<'a>>(
     )
     .fetch_one(executor)
     .await
-    .map_err(|e| {
-        tracing::error!("Failed to execute query: {:?}", e);
-        e
-    })
     .map(|r| r.id)?;
     Ok(subscriber_id)
 }
@@ -181,10 +190,19 @@ pub async fn store_token<'a, T: PgExecutor<'a>>(
         subscriber_id
     )
     .execute(executor)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to execute query: {:?}", e);
-        e
-    })?;
+    .await?;
+    Ok(())
+}
+
+fn error_chain_fmt(
+    e: &impl std::error::Error,
+    f: &mut std::fmt::Formatter<'_>,
+) -> std::fmt::Result {
+    writeln!(f, "{}\n", e)?;
+    let mut current = e.source();
+    while let Some(cause) = current {
+        writeln!(f, "Caused by:\n\t{}", cause)?;
+        current = cause.source();
+    }
     Ok(())
 }
