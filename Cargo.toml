@@ -35,6 +35,10 @@ tera = { version = "1.20.0", default-features = false }
 lazy_static = "1.4.0"
 thiserror = "1.0.61"
 anyhow = "1.0.86"
+tokio = { version = "1", features = [ "rt", "macros" ] }
+secrecy = { version = "0.8.0", features = ["serde"] }
+argon2 = { version = "0.5.3", features = ["std"] }
+base64 = "0.22.1"
 
 [dev-dependencies]
 actix-rt = "2.0.0"
