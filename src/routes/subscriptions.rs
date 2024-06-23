@@ -10,6 +10,7 @@ use crate::{
     domain::{NewSubscriber, SubscriberEmail, SubscriberName},
     email_client::EmailClient,
     startup::ApplicationBaseUrl,
+    telemetry::error_chain_fmt,
     templates::TEMPLATES,
 };
 
@@ -128,7 +129,7 @@ pub async fn send_confirmation_email(
         .render("welcome.html", &welcome_context)
         .expect("Failed rendering template.");
     email_client
-        .send_email(new_subscriber.email, "Welcome!", &html_body, &plain_body)
+        .send_email(&new_subscriber.email, "Welcome!", &html_body, &plain_body)
         .await?;
     Ok(())
 }
@@ -191,18 +192,5 @@ pub async fn store_token<'a, T: PgExecutor<'a>>(
     )
     .execute(executor)
     .await?;
-    Ok(())
-}
-
-fn error_chain_fmt(
-    e: &impl std::error::Error,
-    f: &mut std::fmt::Formatter<'_>,
-) -> std::fmt::Result {
-    writeln!(f, "{}\n", e)?;
-    let mut current = e.source();
-    while let Some(cause) = current {
-        writeln!(f, "Caused by:\n\t{}", cause)?;
-        current = cause.source();
-    }
     Ok(())
 }
