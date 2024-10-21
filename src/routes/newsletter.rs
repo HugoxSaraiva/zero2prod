@@ -78,14 +78,14 @@ pub async fn publish_newsletter(
     request: HttpRequest,
 ) -> Result<HttpResponse, PublishError> {
     let credentials = basic_authentication(request.headers()).map_err(PublishError::AuthError)?;
-    tracing::Span::current().record("username", &tracing::field::display(&credentials.username));
+    tracing::Span::current().record("username", tracing::field::display(&credentials.username));
     let user_id = validate_credentials(credentials, &pool)
         .await
         .map_err(|e| match e {
             AuthError::UnexpectedError(e) => PublishError::UnexpectedError(e),
             AuthError::InvalidCredentials(e) => PublishError::AuthError(e),
         })?;
-    tracing::Span::current().record("user_id", &tracing::field::display(&user_id));
+    tracing::Span::current().record("user_id", tracing::field::display(&user_id));
 
     let subscribers = get_confirmed_subscribers(&pool).await?;
     for subscriber in subscribers {
