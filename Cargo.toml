@@ -15,7 +15,7 @@ name = "zero2prod"
 actix-web = "=4.0.0"
 actix-http = "=3.0.0"
 serde = { version = "1", features = ["derive"]}
-sqlx = { version = "0.7.4", default-features = false, features = ["runtime-tokio-rustls", "macros", "postgres", "uuid", "chrono", "migrate" ] }
+sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio-rustls", "macros", "postgres", "uuid", "chrono", "migrate" ] }
 config = "0.14.0"
 chrono = "0.4.38"
 uuid = { version = "1.8.0", features = ["v4"] }
@@ -35,7 +35,7 @@ tera = { version = "1.20.0", default-features = false }
 lazy_static = "1.4.0"
 thiserror = "1.0.61"
 anyhow = "1.0.86"
-tokio = { version = "1", features = [ "rt", "macros" ] }
+tokio = { version = "1", features = [ "rt-multi-thread", "macros" ] }
 secrecy = { version = "0.8.0", features = ["serde"] }
 argon2 = { version = "0.5.3", features = ["std"] }
 base64 = "0.22.1"
