@@ -1,5 +1,6 @@
 FROM lukemathwalker/cargo-chef:latest-rust-slim-bookworm as chef
 WORKDIR /app
+RUN apt update && apt install lld clang -y
 
 FROM chef AS planner
 COPY . .
